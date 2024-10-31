@@ -3,91 +3,164 @@ package main
 import (
 	"belajar-go/helper"
 	"fmt"
-	"strings"
+	"sync"
 	"time"
 )
 
-const conferenceTickets int = 50
+const concertTickets int = 50
 
 var remainingTickets uint = 50
-var conferenceName = "Go Conference"
-var bookings = []string{}
+var concertName = "Konser YOASOBI"
+
+type Name struct {
+	FirstName string
+	LastName  string
+}
+
+type UserData struct {
+	Name            Name
+	Email           string
+	NumberOfTickets uint
+}
+
+var bookings = []UserData{}
+var wg sync.WaitGroup
+var mutex = &sync.Mutex{}
 
 func main() {
-
 	greetUsers()
 
 	for {
+		var name Name
+		var email string
+		var userTickets uint
 
-		firstName, lastName, email, userTickets := getUserInput()
-		isValidName, isValidEmail, isValidTicketNumber := helper.ValidateUserInput(firstName, lastName, email, userTickets, remainingTickets)
-
-		if isValidName && isValidEmail && isValidTicketNumber {
-
-			go bookTicket(userTickets, firstName, lastName, email)
-
-			firstNames := printFirstNames()
-			fmt.Printf("The first names %v\n", firstNames)
-
-			if remainingTickets == 0 {
-				// end program
+		// Input Nama Depan
+		for {
+			name.FirstName, _, _, _ = getUserInputPartial("firstName")
+			if name.FirstName == "exit" {
+				fmt.Println("Exiting the program...")
+				return
+			}
+			if helper.ValidateName(name.FirstName) {
 				break
 			}
-		} else {
-			if !isValidName {
-				fmt.Println("firt name or last name you entered is too short")
-			}
-			if !isValidEmail {
-				fmt.Println("email address you entered doesn't contain @ sign")
-			}
-			if !isValidTicketNumber {
-				fmt.Println("number of tickets you entered is invalid")
-			}
-			continue
+			fmt.Println("Nama depan harus memiliki minimal 2 karakter")
 		}
+
+		// Input Nama Belakang
+		for {
+			_, name.LastName, _, _ = getUserInputPartial("lastName")
+			if name.LastName == "exit" {
+				fmt.Println("Exiting the program...")
+				return
+			}
+			if helper.ValidateName(name.LastName) {
+				break
+			}
+			fmt.Println("Nama belakang harus memiliki minimal 2 karakter")
+		}
+
+		// Input Email
+		for {
+			_, _, email, _ = getUserInputPartial("email")
+			if email == "exit" {
+				fmt.Println("Exiting the program...")
+				return
+			}
+			if helper.ValidateEmail(email) {
+				break
+			}
+			fmt.Println("Format email tidak valid. Email harus mengandung '@' dan '.'")
+		}
+
+		// Input Jumlah Tiket
+		for {
+			_, _, _, userTickets = getUserInputPartial("userTickets")
+			if userTickets == 0 {
+				fmt.Println("Exiting the program...")
+				return
+			}
+			if helper.ValidateTicketNumber(userTickets, remainingTickets) {
+				break
+			}
+			if remainingTickets == 0 {
+				fmt.Println("Tiket habis")
+				break
+			}
+			fmt.Printf("Jumlah tiket tidak valid. Silakan masukkan angka antara 1 dan %v\n", remainingTickets)
+		}
+
+		if remainingTickets == 0 {
+			break
+		}
+		wg.Add(1)
+		go bookTicket(userTickets, name, email)
+
+		mutex.Lock()
+		if remainingTickets == 0 {
+			mutex.Unlock()
+			// end program
+			break
+		}
+		mutex.Unlock()
 	}
+
+	wg.Wait()
+	printAllNamesWhoHaveTickets()
 }
 
-func printFirstNames() []string {
-	firstNames := []string{}
+func printAllNamesWhoHaveTickets() {
+	fmt.Printf("Berikut adalah nama-nama yang telah memesan tiket:\n")
 
 	for _, booking := range bookings {
-		var names = strings.Fields(booking)
-		firstNames = append(firstNames, names[0])
+		fmt.Printf("%v %v\n", booking.Name.FirstName, booking.Name.LastName)
 	}
-	return firstNames
 }
 
-func getUserInput() (string, string, string, uint) {
+func getUserInputPartial(field string) (string, string, string, uint) {
 	var firstName string
 	var lastName string
 	var email string
 	var userTickets uint
 
-	fmt.Println("Enter Your First Name: ")
-	fmt.Scanln(&firstName)
-
-	fmt.Println("Enter Your Last Name: ")
-	fmt.Scanln(&lastName)
-
-	fmt.Println("Enter Your Email: ")
-	fmt.Scanln(&email)
-
-	fmt.Println("Enter number of tickets: ")
-	fmt.Scanln(&userTickets)
+	switch field {
+	case "firstName":
+		fmt.Println("Masukkan Nama Depan Anda: ")
+		fmt.Scanln(&firstName)
+	case "lastName":
+		fmt.Println("Masukkan Nama Belakang Anda: ")
+		fmt.Scanln(&lastName)
+	case "email":
+		fmt.Println("Masukkan Email Anda: ")
+		fmt.Scanln(&email)
+	case "userTickets":
+		fmt.Println("Masukkan jumlah tiket yang diinginkan: ")
+		fmt.Scanln(&userTickets)
+	}
 
 	return firstName, lastName, email, userTickets
 }
 
 func greetUsers() {
-	fmt.Printf("Welcome to %v booking application.\nWe have total of %v tickets and %v are still available.\nGet your tickets here to attend\n", conferenceName, conferenceTickets, remainingTickets)
+	fmt.Printf("Selamat datang di aplikasi pemesanan tiket %v.\nKami memiliki total %v tiket dan %v masih tersedia.\nPesan tiket Anda sekarang untuk menghadiri konser.\n", concertName, concertTickets, remainingTickets)
 }
 
-func bookTicket(userTickets uint, firstName string, lastName string, email string) {
+func bookTicket(userTickets uint, name Name, email string) {
+	defer wg.Done()
 	time.Sleep(time.Second * 5)
-	remainingTickets = remainingTickets - userTickets
-	bookings = append(bookings, firstName+" "+lastName)
 
-	fmt.Printf("Thank you %v %v for booking %v tickets. You will receive a confirmation email at %v\n", firstName, lastName, userTickets, email)
-	fmt.Printf("%v tickets remaining for %v\n", remainingTickets, conferenceName)
+	mutex.Lock()
+	remainingTickets = remainingTickets - userTickets
+	bookings = append(bookings, UserData{
+		Name:            name,
+		Email:           email,
+		NumberOfTickets: userTickets,
+	})
+	mutex.Unlock()
+
+	fmt.Println("=============================================")
+	fmt.Printf("Terima kasih %v %v telah memesan %v tiket. Anda akan menerima email konfirmasi di %v.\n", name.FirstName, name.LastName, userTickets, email)
+	fmt.Printf("%v tiket tersisa untuk %v.\n", remainingTickets, concertName)
+	fmt.Println("=============================================")
 }
